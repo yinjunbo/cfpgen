@@ -97,7 +97,7 @@ and then run the following command to start generation:
 python cfp_generate.py
 ```
 The results will be saved in `./generation-results`. Currently, ```cfp_generate.py``` supports generation following ground-truth labels from natural proteins (e.g., from SwissProt).
-The [GO/IPR mapping info](https://drive.google.com/drive/folders/1Z6Zmjy1h41rk_Lu89itHeWdep-S9-Zjy?usp=drive_link) can be download here. A more flexible interface for open-ended protein design will be released in future updates.
+The [GO/IPR mapping info](https://drive.google.com/drive/folders/1Z6Zmjy1h41rk_Lu89itHeWdep-S9-Zjy?usp=sharing) can be download here. A more flexible interface for open-ended protein design will be released in future updates.
 
 ### Functional Protein Inverse Folding
 
