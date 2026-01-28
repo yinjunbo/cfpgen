@@ -27,7 +27,8 @@ CFP-Gen focuses on functional protein design and supports the following tasks:
   
   
 ## Update 
-- ​**​[2025-05]​**​ Code of CFP-Gen is released. 
+- ​**​[2025-05]​**​ Code of CFP-Gen is released.
+- **​[2026-01]​**​ Add EC branch.
 
 
 
@@ -45,7 +46,7 @@ conda create -n ${env_name} python=3.9 pip
 conda activate ${env_name}
 
 # automatically install everything else
-bash scripts/install.sh
+bash install.sh
 ```
 
 
@@ -69,6 +70,7 @@ More advanced functionalities will be released in future updates.
 | Model name                                                                                         | Functionalities       |   
 |----------------------------------------------------------------------------------------------------|-----------------------|
 | [cfpgen-650m](https://drive.google.com/file/d/1XVYYvKjgcM08v6uI6PYb0-yMzAOxJXis/view?usp=sharing)  | GO & IPR & Seq. Motif |
+| [cfpgen-650m-enzyme](https://drive.google.com/file/d/1Q0ZE6EWWH2H8f9BtUSdAFOEz76mB61ja/view?usp=sharing)  | EC & Seq. Motif |
 | [cfpgen-if-zs](https://drive.google.com/file/d/1YwD7xpQTA0ktUdQbgHVb15IKwjEYs2ef/view?usp=sharing) | GO & IPR & Backbone   |
 | [dplm-650m](https://drive.google.com/file/d/16_spXxWXAs6E4SWXlCgRqxy6Z7gVZYFV/view?usp=sharing)    | For training CFP-Gen  |
 
@@ -78,6 +80,8 @@ More advanced functionalities will be released in future updates.
   
 
 - ```cfpgen-650m```: Support conditioning on GO terms, IPR domains and sequence motifs (e.g., 10-30 residue fragments) defined by our **general protein dataset**. This model can be readily used for _Functional Protein Generation_.
+
+- ```cfpgen-650m-enzyme```: Support conditioning on EC numbers and sequence motifs (optional with GO/IPR for better performance). To run this model, please check out the [`EC` branch](https://github.com/yinjunbo/cfpgen/tree/EC).
 
 - ```cfpgen-if-zs```: Designed for _Functional Inverse Folding_ in **zero-shot** settings. The structure adapter used in this model is pretrained on CATH-4.3. It enables the generation of functional sequences conditioned on backbone atomic coordinates, while simultaneously leveraging GO and IPR annotations.
 
