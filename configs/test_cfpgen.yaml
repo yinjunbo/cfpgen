@@ -1,19 +1,20 @@
 seed: 42
 
-run_name: go-ipr-motif
-ckpt_path: byprot-checkpoints/cfpgen_650m/checkpoints/last.ckpt
-input_data: data-bin/uniprotKB/cfpgen_general_dataset/test.pkl
+run_name: publish-ec-go-ipr
+ckpt_path: byprot-checkpoints/cfpgen_650m_enzyme/checkpoints/last.ckpt
+vocab_dir: byprot-checkpoints/cfpgen_650m_enzyme/vocab_with_ec
+input_data: xxxx/test-ec.pkl
 saveto: generation-results/
 
 num_seqs: 1
 
-seq_lens: [200, 400]  # for general proteins
-#seq_lens: [300, 500]  # for enzyme dataset
+#seq_lens: [200, 400]  # for general proteins
+seq_lens: [300, 500]  # for enzyme dataset
 
 use_go: true
 use_ipr: true
-use_ec: false
-use_seq_motif: true
+use_ec: true
+use_seq_motif: false
 motif_min: 10
 motif_max: 30
 

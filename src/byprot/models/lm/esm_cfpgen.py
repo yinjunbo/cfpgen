@@ -157,7 +157,7 @@ class AGFMLayer(nn.Module):
 
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(config.hidden_size, 6 * config.hidden_size, bias=True),  # use gate_msa
+            nn.Linear(config.hidden_size, 4 * config.hidden_size, bias=True),  # use gate_msa
         )
 
 
@@ -174,8 +174,8 @@ class AGFMLayer(nn.Module):
     ):
 
         if cond_input is not None:
-            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(cond_input).chunk(6, dim=1)
-
+            shift_msa, scale_msa, shift_mlp, scale_mlp = self.adaLN_modulation(cond_input).chunk(4, dim=1)
+            gate_msa = gate_mlp = None
         else:
             shift_msa = scale_msa = shift_mlp = scale_mlp = gate_msa = gate_mlp = None
 
@@ -204,6 +204,129 @@ class AGFMLayer(nn.Module):
             layer_output = self.output(intermediate_output, attention_output)
 
         outputs = (layer_output,) + outputs
+        return outputs
+
+
+class ModifiedEsmSelfAttention(EsmSelfAttention):
+    def __init__(self, config, position_embedding_type=None,
+                 kdim=None,
+                 vdim=None):
+        super().__init__(config, position_embedding_type)
+        if kdim is not None:
+            self.key = nn.Linear(kdim, self.all_head_size)
+        if vdim is not None:
+            self.value = nn.Linear(vdim, self.all_head_size)
+
+
+class ModifiedEsmAttention(EsmAttention):
+    def __init__(self, config, kdim=None, vdim=None):
+        super().__init__(config)
+        self.self = ModifiedEsmSelfAttention(config, kdim=kdim, vdim=vdim)
+
+    def forward(
+            self,
+            hidden_states,
+            attention_mask=None,
+            head_mask=None,
+            encoder_hidden_states=None,
+            encoder_attention_mask=None,
+            past_key_value=None,
+            output_attentions=False,
+            cond_input=None,
+    ):
+        hidden_states_ln = self.LayerNorm(hidden_states)
+        self_outputs = self.self(
+            hidden_states_ln,
+            attention_mask,
+            head_mask,
+            encoder_hidden_states,
+            encoder_attention_mask,
+            past_key_value,
+            output_attentions,
+        )
+        attention_output = self.output(self_outputs[0], hidden_states)
+        outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
+        return outputs
+
+
+
+class ModifiedEsmLayer(EsmLayer):
+    def __init__(self, config):
+        nn.Module.__init__(self)
+        self.chunk_size_feed_forward = config.chunk_size_feed_forward
+        self.seq_len_dim = 1
+        self.attention = ModifiedEsmAttention(config)
+        self.is_decoder = config.is_decoder
+        if self.is_decoder:
+            print(self.is_decoder)
+        self.intermediate = EsmIntermediate(config)
+        self.output = EsmOutput(config)
+        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+
+    def forward(
+            self,
+            hidden_states,
+            attention_mask=None,
+            head_mask=None,
+            encoder_hidden_states=None,
+            encoder_attention_mask=None,
+            past_key_value=None,
+            output_attentions=False,
+            cond_input=None
+    ):
+        # decoder uni-directional self-attention cached key/values tuple is at positions 1,2
+        self_attn_past_key_value = past_key_value[:2] if past_key_value is not None else None
+        self_attention_outputs = self.attention(
+            hidden_states,
+            attention_mask,
+            head_mask,
+            output_attentions=output_attentions,
+            past_key_value=self_attn_past_key_value,
+            cond_input=cond_input,
+        )
+        attention_output = self_attention_outputs[0]
+
+        # if decoder, the last output is tuple of self-attn cache
+        if self.is_decoder:
+            outputs = self_attention_outputs[1:-1]
+            present_key_value = self_attention_outputs[-1]
+        else:
+            outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
+
+        cross_attn_present_key_value = None
+        if self.is_decoder and encoder_hidden_states is not None:
+            if not hasattr(self, "crossattention"):
+                raise AttributeError(
+                    f"If `encoder_hidden_states` are passed, {self} has to be instantiated"
+                    " with cross-attention layers by setting `config.add_cross_attention=True`"
+                )
+
+            # cross_attn cached key/values tuple is at positions 3,4 of past_key_value tuple
+            cross_attn_past_key_value = past_key_value[-2:] if past_key_value is not None else None
+            cross_attention_outputs = self.crossattention(
+                attention_output,
+                attention_mask,
+                head_mask,
+                encoder_hidden_states,
+                encoder_attention_mask,
+                cross_attn_past_key_value,
+                output_attentions,
+                cond_input=cond_input
+            )
+            attention_output = cross_attention_outputs[0]
+            outputs = outputs + cross_attention_outputs[1:-1]  # add cross attentions if we output attention weights
+
+            # add cross-attn cache to positions 3,4 of present_key_value tuple
+            cross_attn_present_key_value = cross_attention_outputs[-1]
+            present_key_value = present_key_value + cross_attn_present_key_value
+        # layer_norm->linear(5120)->linear(1280)
+        layer_output = self.feed_forward_chunk(attention_output)
+
+        outputs = (layer_output,) + outputs
+
+        # if decoder, return the attn key/values as the last output
+        if self.is_decoder:
+            outputs = outputs + (present_key_value,)
         return outputs
 
 
@@ -256,7 +379,7 @@ class CFPGenEncoder(EsmEncoder):
             self.copy_blocks_num = config.num_hidden_layers//2
             self.anno_dropout = 0.5
             self.seq_controlnet = nn.ModuleList(
-                [RCFEBlock(AGFMLayer(deepcopy(config)), i, config.hidden_size) for i in range(self.copy_blocks_num)]
+                [RCFEBlock(ModifiedEsmLayer(deepcopy(config)), i, config.hidden_size) for i in range(self.copy_blocks_num)]
             )
         else:
             self.seq_controlnet = None
@@ -367,7 +490,7 @@ class CFPGenEncoder(EsmEncoder):
             random_go_embed = anno_embed if (not self.training or random.random() > self.anno_dropout) else None  # motif embedding 多大程度参考 global condition
 
             for index in range(1, self.copy_blocks_num + 1):
-                motif, motif_skip = self.seq_controlnet[index - 1](hidden_states, attention_mask, motif, random_go_embed)
+                motif, motif_skip = self.seq_controlnet[index - 1](hidden_states, attention_mask, motif, None)
                 hidden_states = self.layer[index](hidden_states+motif_skip, attention_mask, cond_input=random_go_embed)[0]
 
             for index in range(self.copy_blocks_num + 1, len(self.layer)):

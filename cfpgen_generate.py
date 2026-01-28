@@ -17,6 +17,10 @@ import multiprocessing as mp
 from torch.cuda.amp import autocast
 import traceback
 
+def load_pkl_file(path: str):
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -79,11 +83,108 @@ def get_motif_gt_pos(target, model, motif_start_end, min_mask_ratio=0.05, max_ma
     return torch.stack(masked_targets)
 
 
+def load_label_mappings(vocab_dir=None):
+    if vocab_dir is None:
+        return None, None, None
+
+    vocab_dir = str(vocab_dir)
+
+    go_map_path = os.path.join(vocab_dir, "go_mapping.pkl")
+    ipr_map_path = os.path.join(vocab_dir, "ipr_mapping.pkl")
+    ec_map_path = os.path.join(vocab_dir, "ec_mapping.pkl")
+
+    go_mapping = load_pkl_file(go_map_path) if os.path.isfile(go_map_path) else None
+    ipr_mapping = load_pkl_file(ipr_map_path) if os.path.isfile(ipr_map_path) else None
+    ec_mapping = load_pkl_file(ec_map_path) if os.path.isfile(ec_map_path) else None
+
+    # dag = _get_ontology_dag(config)
+    return go_mapping, ipr_mapping, ec_mapping
+
+def expand_ec_wildcards(ec_annos, ec_mapping, max_per_wildcard=1):
+    if not ec_annos or ec_mapping is None:
+        return []
+
+    expanded = []
+    seen = set()
+
+    for raw in ec_annos:
+        ec = raw.strip()
+        if not ec:
+            continue
+
+        if ec in ec_mapping:
+            if ec not in seen:
+                seen.add(ec)
+                expanded.append(ec)
+            continue
+
+
+        parts = ec.replace("-", "").rstrip(".").split(".")
+        parts = [p for p in parts if p]
+        if not parts:
+            continue
+        prefix = ".".join(parts) + "."
+
+        candidates = [key for key in ec_mapping if key.startswith(prefix)]
+
+        if not candidates:
+            print(f"[EC wildcard] No match in ec_mapping for '{raw}' (prefix='{prefix}')")
+            continue
+
+        if len(candidates) > max_per_wildcard:
+            candidates = random.sample(candidates, max_per_wildcard)
+
+        for key in candidates:
+            if key not in seen:
+                seen.add(key)
+                expanded.append(key)
+
+        print(f"[EC wildcard] '{raw}' → {len(candidates)} sampled from {prefix}* : {candidates}")
+
+    return expanded
+
+
+
 def get_initial(config, model, sample, length, tokenizer, device, sequence):
 
-    go_labels = sample['go_f_mapped'] if 'go_f_mapped' in sample else sample['go_mapped']
-    ipr_labels = sample['ipr_mapped']
-    ec_labels = sample.get('EC_mapped', None)
+    # go_labels = sample['go_f_mapped'] if 'go_f_mapped' in sample else sample['go_mapped']
+    # ipr_labels = sample['ipr_mapped']
+    # ec_labels = sample.get('EC_mapped', None)
+
+    go_mapping, ipr_mapping, ec_mapping = load_label_mappings(config.get('vocab_dir', None))
+
+    if config.get("use_go", False):
+        go_labels = []
+        go_raw = sample.get("go_numbers")
+        go_annos = (
+            [go for v in (go_raw or {}).values() for go in (v or [])]
+            if isinstance(go_raw, dict)
+            else list(go_raw or [])
+        )
+        if go_mapping is not None and len(go_annos) > 0:
+            go_labels = [go_mapping[x] for x in go_annos if x in go_mapping]
+
+            # go_terms_all = []
+            # global_seen = set()
+            # for t in go_annos:
+            #     for anc in all_parents_go(t, go_dag, include_self=True):
+            #         if anc not in global_seen:
+            #             global_seen.add(anc)
+            #             go_terms_all.append(anc)
+            # go_labels = [go_mapping[x] for x in go_terms_all if x in go_mapping]
+
+    if config.get("use_ipr", False):
+        ipr_labels = []
+        ipr_annos = sample.get("ipr_numbers")
+        if ipr_mapping is not None and len(ipr_annos) > 0:
+            ipr_labels = [ipr_mapping[x] for x in ipr_annos if x in ipr_mapping]
+
+    if config.get("use_ec", False):
+        ec_labels = []
+        ec_annos = sample.get("EC_number")
+        if ec_mapping is not None and len(ec_annos) > 0:
+            expanded_ec = expand_ec_wildcards(ec_annos, ec_mapping)
+            ec_labels = [ec_mapping[x] for x in expanded_ec]
 
     if config.get('use_seq_motif', False):
         motif_info = sample.get('motif', [])

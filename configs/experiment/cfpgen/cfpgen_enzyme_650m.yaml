@@ -27,15 +27,15 @@ model:
   rdm_couple: false
   cond:
     use_go: true
-    go_num: 780
+    go_num: 473
     go_drop: 0.5
     use_ipr: true
-    ipr_num: 4982
+    ipr_num: 13480
     ipr_drop: 0.5
     use_ec: true
-    ec_num: 661
+    ec_num: 5651
     ec_drop: 0
-    use_seq_motif: false
+    use_seq_motif: true
     motif_min_len: 10
     motif_max_len: 30
     use_struc_bb: false
